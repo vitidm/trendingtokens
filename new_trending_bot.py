@@ -19,8 +19,8 @@ random_publicity_button = [
 seconds_edit_message = 80
 
 url = "https://api.defined.fi"
-definet_lv = "ev1g4sXv2b4HR6XC9x4bw4IKP5zUj6av3QhrOWJz"
-definet_vd = "yNk1v01YDP3Glmq5xGEiY8BBIhEt1y261KTwSwHv"
+definet_lv = "NVFQLhnCYA43iooUvTJI7rLyFIWB4OQX3lIdnuj0"
+definet_vd = "NVFQLhnCYA43iooUvTJI7rLyFIWB4OQX3lIdnuj0"
 definet_apis = [definet_lv, definet_vd]
 
 def getDefinedDetailedPairStats(token_pair):
