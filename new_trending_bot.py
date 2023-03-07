@@ -16,7 +16,7 @@ random_publicity_button = [
         ['Publicity here now! Visit DefiNet🤏', 'https://www.definet-platform.com/']
     ]
 
-seconds_edit_message = 30
+seconds_edit_message = 80
 
 url = "https://api.defined.fi"
 definet_lv = "ev1g4sXv2b4HR6XC9x4bw4IKP5zUj6av3QhrOWJz"
