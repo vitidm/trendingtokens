@@ -13,7 +13,7 @@ updater = Updater(token='5801838689:AAGC4Zh9_S6Dt9gpf3uB3tNQ4w65XBSVi3M', use_co
 
 random_publicity_button = [
         ['Publicity here now! Visit DefiNet🤏', 'https://www.definet-platform.com/'], 
-        ['TEST 2', 'https://www.definet-platform.com/']
+        ['Publicity here now! Visit DefiNet🤏', 'https://www.definet-platform.com/']
     ]
 
 seconds_edit_message = 30
