@@ -16,7 +16,7 @@ random_publicity_button = [
         ['Publicity here now! Visit DefiNet🤏', 'https://www.definet-platform.com/']
     ]
 
-seconds_edit_message = 80
+seconds_edit_message = 1
 
 url = "https://api.defined.fi"
 definet_lv = "NVFQLhnCYA43iooUvTJI7rLyFIWB4OQX3lIdnuj0"
@@ -24,7 +24,7 @@ definet_vd = "NVFQLhnCYA43iooUvTJI7rLyFIWB4OQX3lIdnuj0"
 definet_apis = [definet_lv, definet_vd]
 
 def getDefinedDetailedPairStats(token_pair):
-    volume_type = 'day1'
+    volume_type = 'hour1'
     
     headers_define = {
         "accept": "application/json",
@@ -160,10 +160,11 @@ def getDefinedTokenEvents(token_pair):
     HOLDERS = getDefinedDetailedPairStats(token_pair)
     MKT_CAP = round(float(response_result_filterPair['marketCap']), 2)
     VOL_24H = int(response_result_filterPair['volumeUSD24'])
+    VOL_1H = int(response_result_filterPair['volumeUSD1'])
     TOKEN_NAME = response_result_filterPair['token0']['name']
     num_emojis = VOL_24H // 10000
     
-    return MKT_CAP, VOL_24H, TOKEN_NAME, HOLDERS, num_emojis
+    return MKT_CAP, VOL_24H, TOKEN_NAME, HOLDERS, num_emojis, VOL_1H
     
 def sqlConnectorExtractPostTelegramTokenInfo(table_name):
     cnx = mysql.connector.connect(
@@ -175,16 +176,69 @@ def sqlConnectorExtractPostTelegramTokenInfo(table_name):
     )
     cursor = cnx.cursor(dictionary=True)
     current_date = datetime.now().strftime('%d/%m/%Y')
-    query = f"SELECT DISTINCT all_data_tokens.token_address, all_data_tokens.pair_address, all_data_tokens.token_name, MAX(all_data_tokens.day1) AS max_day1 FROM all_data_tokens LEFT JOIN pair_created_real_time ON all_data_tokens.token_address = pair_created_real_time.token_address WHERE pair_created_real_time.launch_date LIKE '%{current_date}%' AND all_data_tokens.time LIKE '%{current_date}%' GROUP BY all_data_tokens.token_address, all_data_tokens.token_name ORDER BY max_day1 DESC LIMIT 10"
+    query = f"SELECT DISTINCT(token_address), pair_address, token_name FROM all_data_tokens WHERE time LIKE '%{current_date}%'"
 
     cursor.execute(query)
     result = cursor.fetchall()
     cursor.close()
     cnx.close()
-    sorted_data = sorted(result, key=lambda x: x['max_day1'], reverse=True)
-    
-    return sorted_data
 
+    return result
+
+def tokenSecurity(token_address):
+    url = 'https://api.gopluslabs.io/api/v1/token_security/{id}?contract_addresses={addresses}'
+    id_value = '1'
+    contract_addresses_value = token_address
+    response = requests.get(url.format(id=id_value, addresses=contract_addresses_value))
+
+    validator = None
+    if response.status_code == 200:
+        massive_data = response.json()["result"]
+        
+        try:
+            buy_tax = float(massive_data[f"{contract_addresses_value}"]["buy_tax"])
+            sell_tax = float(massive_data[f"{contract_addresses_value}"]["sell_tax"])
+            lp_holders = int(massive_data[f"{contract_addresses_value}"]["lp_holder_count"])
+            
+            if buy_tax != 0 and buy_tax <= 0.1:
+                if sell_tax != 0 and sell_tax <= 0.1:
+                    if lp_holders >= 1:
+                        print("buy_tax= ", buy_tax)
+                        print("sell_tax= ", sell_tax)
+                        
+                        print("lp_holders= ", lp_holders)
+                        validator = True
+                        
+                        return validator
+                    else:
+                        print("Not enough data - lp_holders")
+                        validator = False
+                        
+                        return validator
+                else:
+                    print("Needs to respect sell_tax != 0 or sell_tax <= 0.1")
+                    validator = False
+                        
+                    return validator
+            else:
+                print("Needs to respect buy_tax != 0 or buy_tax <= 0.1")
+                validator = False
+                        
+                return validator
+        except Exception:
+            buy_tax = None
+            sell_tax = None
+            print("Not enough data - buy_tax, sell_tax")
+            validator = False
+                        
+            return validator
+
+    else:
+        print("Error:", response.status_code)
+        validator = False
+                    
+        return validator
+    
 def reduce_number(num):
     if num >= 1000000:
         return str(round(num / 1000000, 1)) + "M"
@@ -192,38 +246,50 @@ def reduce_number(num):
         return str(round(num / 1000, 1)) + "K"
     else:
         return str(num)
-    
 
+def convert_max_day1(token):
+    if token['max_day1'][-1] == 'K':
+        return float(token['max_day1'][:-1]) * 1000
+    elif token['max_day1'][-1] == 'M':
+        return float(token['max_day1'][:-1]) * 1000000
+    else:
+        return float(token['max_day1'])
+    
 # Message template
 def generate_message():
     top_10_tokens = sqlConnectorExtractPostTelegramTokenInfo("all_data_tokens")
-    top_10_formated = []
+
+    token_filtered = []
+    for i, top_10_token in enumerate(top_10_tokens):
+        validator = tokenSecurity(top_10_token['token_address'].lower())
+        print(validator, top_10_token['token_name'], top_10_token['token_address'].lower())
+        if validator:
+            MKT_CAP, VOL_24H, TOKEN_NAME, HOLDERS, num_emojis, VOL_1H, = getDefinedTokenEvents(top_10_token['pair_address'].lower())
+            if VOL_1H >= 1000:
+                top_10_token['result'] = getDefinedTokenEvents(top_10_token['pair_address'].lower())
+                top_10_token['max_day1'] =  reduce_number(top_10_token['result'][1])
+                token_filtered.append(top_10_token)
+        else:
+            pass
+    
     rank_list = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
     
-    
-    for i, top_10_token in enumerate(top_10_tokens):
-        top_10_token['dextools'] = f"https://www.dextools.io/app/es/ether/pair-explorer/{top_10_token['pair_address']}"
-        top_10_token['result'] = getDefinedTokenEvents(top_10_token['pair_address'].lower())
-        top_10_token['max_day1'] =  reduce_number(top_10_token['result'][1])
-        top_10_token['rank'] = rank_list[i]
-    top_10_tokens = sorted(top_10_tokens, key=lambda x: float(x['max_day1'][:-1]), reverse=True)
+    token_filtered = sorted(token_filtered, key=convert_max_day1, reverse=True)[:10]
 
-    top_10_formated.append("<b>DefiNet TOP 10 TRENDING</b>" + "\n"
-        + "\n" + f"<b>🥇</b>" + "|" + f"<b><a href='{top_10_tokens[0]['dextools']}'>{top_10_tokens[0]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[0]['max_day1']}</i>"
-        + "\n" + f"<b>🥈</b>" + "|" + f"<b><a href='{top_10_tokens[1]['dextools']}'>{top_10_tokens[1]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[1]['max_day1']}</i>"
-        + "\n" + f"<b>🥉</b>" + "|" + f"<b><a href='{top_10_tokens[2]['dextools']}'>{top_10_tokens[2]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[2]['max_day1']}</i>"
-        + "\n" + f"<b>4️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[3]['dextools']}'>{top_10_tokens[3]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[3]['max_day1']}</i>"
-        + "\n" + f"<b>5️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[4]['dextools']}'>{top_10_tokens[4]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[4]['max_day1']}</i>"
-        + "\n" + f"<b>6️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[5]['dextools']}'>{top_10_tokens[5]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[5]['max_day1']}</i>"
-        + "\n" + f"<b>7️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[6]['dextools']}'>{top_10_tokens[6]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[6]['max_day1']}</i>"
-        + "\n" + f"<b>8️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[7]['dextools']}'>{top_10_tokens[7]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[7]['max_day1']}</i>"
-        + "\n" + f"<b>9️⃣</b>" + "|" + f"<b><a href='{top_10_tokens[8]['dextools']}'>{top_10_tokens[8]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[8]['max_day1']}</i>"
-        + "\n" + f"<b>🔟</b>" + "|" + f"<b><a href='{top_10_tokens[9]['dextools']}'>{top_10_tokens[9]['token_name']} </a></b>" + "|" +  f"<i>${top_10_tokens[9]['max_day1']}</i>"
-        + "\n" + "\n" + f"ℹ️ <i><a href='https://definet.fly.dev/'>DefiNet Trending</a> displays the top 10 tokens that have moved the most volume during the day. </i>")
+    top_10_formated = []
+    for i, top_10_token in enumerate(token_filtered):
+        top_10_token['dextools'] = f"https://www.dextools.io/app/es/ether/pair-explorer/{top_10_token['pair_address']}"
+        
+        top_10_token['rank'] = rank_list[i]
+
+    for token in token_filtered:
+        top_10_formated.append(f"<b>{token['rank']}</b>" + "|" + f"<b><a href='{token['dextools']}'>{token['token_name']} </a></b>" + "|" +  f"<i>${token['max_day1']}</i>")
+
+    top_10_formated.append("\n" + f"ℹ️ <i><a href='https://definet.fly.dev/'>DefiNet Trending</a> displays the top {len(token_filtered)} tokens that have moved the most volume during the day. </i>")
+
+    message = "\n".join(["<b>DefiNet TOP 10 TRENDING</b>"] + top_10_formated)
     
-    message = " ".join(top_10_formated)
-    
-    return message, top_10_tokens
+    return message, token_filtered
 
 def send_json_message(update, context):
     random_button = random.choice(random_publicity_button)
@@ -235,7 +301,7 @@ def send_json_message(update, context):
     original_message_id = original_message.message_id
 
     # Info message
-    context.bot.send_message(chat_id=update.message.chat_id, text="🎯 For every 5k volume increase of a token in the Top-10 list, a notification will be displayed. \n \n🗣 If you wish to be featured in the advertising banner, do not hesitate to contact us at @Makimaxi.")
+    context.bot.send_message(chat_id=update.message.chat_id, text="🎯 For every 500$ volume increase of a token in the Top-10 list, a notification will be displayed. \n \n🗣 If you wish to be featured in the advertising banner, do not hesitate to contact us at @Makimaxi.")
     
     previous_results = {}
 
@@ -271,9 +337,16 @@ def send_json_message(update, context):
                 previous_volume = previous_results[token_name]['volume']
                 current_volume = current_result['volume']
 
-                if current_volume >= previous_volume + 5000:
+                if current_volume >= previous_volume + 500:
                     # Crear el mensaje de texto para enviar al grupo de Telegram
-                    response_text = f"<a href='https://www.dextools.io/app/es/ether/pair-explorer/{top_10_token['pair_address']}'>{top_10_token['result'][2]}</a>\n {top_10_token['rank'] * top_10_token['result'][4]}\n \n📊 Total Volume: ${top_10_token['result'][1]:,}\n👥 Total Holders: {top_10_token['result'][3]:,}\n💵  Market Cap: ${top_10_token['result'][0]:,}"
+                    response_text = "<a href='https://www.dextools.io/app/es/ether/pair-explorer/{0}'>{1}</a>\n {2}\n \n📊 Total Volume: ${3}\n👥 Total Holders: {4}\n💵  Market Cap: ${5}".format(
+                        top_10_token['pair_address'],
+                        top_10_token['result'][2],
+                        top_10_token['rank'] * top_10_token['result'][4],
+                        '{:,}'.format(top_10_token['result'][1]),
+                        '{:,}'.format(top_10_token['result'][3]),
+                        '{:,}'.format(top_10_token['result'][0])
+                    )
                     # # Agregar los links
                     response_text += f"\n\n💹 <a href='https://www.dextools.io/app/es/ether/pair-explorer/{top_10_token['pair_address']}'>Chart</a>       🦄 <a href='https://app.uniswap.org/#/tokens/ethereum/{top_10_token['token_address']}'>Buy</a>\nℹ️ <a href='https://etherscan.io/token/{top_10_token['token_address']}'>Contract</a> 📈 <a href='https://definet.fly.dev/'>DefiNet dApp</a>"
                     
